@@ -2,6 +2,7 @@ from rdkit import Chem
 import numpy as np 
 from functools import reduce
 import matplotlib.pyplot as plt
+import sys
 
 # input SMILES and linker element
 SMILES_in = input("SMILES: ")
@@ -9,18 +10,26 @@ linker = input("linker element: ")
 
 m = Chem.MolFromSmiles(SMILES_in)
 
+# electronegativity, w/ respect to carbon
+EN = {'C':0,'N':-2.7391,'O':-5.3315,'S':0.1539}
+# ionization energy w/ respect to carbon
+IE = {'C':0,'N':-1.63692,'O':-1.17888,'S':0.45014}
 # FIND LINKERS
 # make list of possible linker atoms
 linker_list = []
 i = 0
+
+atoms=[]
 for atom in m.GetAtoms():
+    atoms.append(atom.GetSymbol())
     if atom.GetSymbol() == linker:
         linker_list.append(i)
     i += 1
 
 if len(linker_list)<2:
     print("ERROR: did not find linker")
-    quit()
+    sys.exit()
+
 # find atoms with the longest graph distance
 DistMatrix = Chem.GetDistanceMatrix(m)
 dist_max = 0
@@ -32,18 +41,44 @@ for i in range(len(linker_list)):
             r = k
             dist_max = DistMatrix[j][k]
 
-# make adjacency matrix
-AdjMatrix = np.array(Chem.GetAdjacencyMatrix(m))#,useBO=True))
+# replace linkers with carbon?
+DoReplace = input("replace linker with Carbon? (y/n) : ")
+if DoReplace=='y':
+    atoms[l]='C'
+    atoms[r]='C'
 
+# make adjacency matrix
+useBO = input("use bond order? (y/n) ")
+useBO = useBO=='y'
+if(not useBO):
+    print('not using bond order')
+
+AdjMatrix = np.array(Chem.GetAdjacencyMatrix(m,useBO=useBO))
 # compute transmission function
 # input parameters
-eps = float(input("on-site energy: "))
-tau = float(input("atomic coupling: "))
+# eps = float(input("on-site energy: "))
 Gam = float(input("lead coupling: "))
+if(useBO):
+    tau1 = float(input("single bond coupling: "))
+    tau2 = float(input("double bond coupling: "))
+    tau3 = float(input("triple bond coupling: "))
+    AdjMatrix = tau1*(AdjMatrix==1)+tau2*(AdjMatrix==2)+tau3*(AdjMatrix==3)    
+else:
+    tau = float(input("atomic coupling: "))
+    AdjMatrix = tau*AdjMatrix
 
 N = AdjMatrix.shape[0]
 # make Hamiltonian
-H = tau*AdjMatrix+eps*np.identity(N)
+# H = AdjMatrix+eps*np.identity(N)
+H = AdjMatrix
+OnsiteEnergy = input("Onsite energy type? (EN/IE) : ")
+if OnsiteEnergy=='EN' or OnsiteEnergy=='IE':
+    for i,atom in enumerate(atoms):
+        if OnsiteEnergy=='EN' :
+            H[i][i]=EN[atom]
+        elif OnsiteEnergy=='IE' :
+            H[i][i]=IE[atom]
+
 # make Coupling matrices
 GamL=np.zeros((N,N))
 GamR=np.zeros((N,N))
@@ -74,4 +109,5 @@ plt.plot(energy,T)
 plt.yscale('log')
 plt.xlabel('Energy')
 plt.ylabel('Transmission')
+plt.ylim(1e-5,1)
 plt.savefig(name+'.png')
